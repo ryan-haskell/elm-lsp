@@ -1,0 +1,61 @@
+{
+    "name": "elm",
+    "displayName": "Elm",
+    "description": "Support for the Elm programming language.",
+    "version": "1.0.0",
+    "publisher": "ryan-haskell",
+    "repository": "https://github.com/ryan-haskell/elm-lsp",
+    "engines": {
+        "vscode": "^1.88.1"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "activationEvents": [
+        "*"
+    ],
+    "main": "./client/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "elm",
+                "aliases": ["Elm","elm"],
+                "extensions": [ ".elm" ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+              "scopeName": "markdown.elm.codeblock",
+              "path": "./client/codeblock.tmLanguage.json",
+              "injectTo": [ "text.html.markdown" ],
+              "embeddedLanguages": {
+                "meta.embedded.block.elm": "elm",
+                "meta.embedded.block.glsl": "glsl"
+              }
+            },
+            {
+                "language": "elm",
+                "scopeName": "source.elm",
+                "path": "./client/elm.tmLanguage.json"
+            }
+        ],
+        "configurationDefaults": {
+            "[elm]": {
+                "editor.tabSize": 4,
+                "editor.formatOnSave": true,
+                "editor.wordBasedSuggestions": "off",
+                "editor.occurrencesHighlight": "off",
+                "editor.selectionHighlight": false
+            }
+        }
+    },
+    "scripts": {},
+    "devDependencies": {
+        "@types/node": "20.12.7",
+        "@types/vscode": "1.88.0"
+    },
+    "dependencies": {
+        "vscode-languageclient": "9.0.1"
+    }
+}
