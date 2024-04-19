@@ -1,22 +1,30 @@
-const vscode = require('vscode')
+const features = {
+  lsp: require('./features/lsp.js'),
+  semanticHighlighting: require('./features/semantic-highlighting.js')
+}
 
-/**
+
+/** Runs with an ".elm" file is opened, or if an "elm.json" file is detected in the root of the project.
+ * 
+ * (See "activationEvents" in the `package.json`)
+ * 
  * @param {import('vscode').ExtensionContext} context 
  * @returns {void}
  */
-function activate(context) {
-  console.log("Activated")
+async function activate(context) {
+  console.log("Activate!")
+  features.lsp.activate(context)
+  features.semanticHighlighting.activate(context)
 }
 
-/**
+
+/** Called when the plugin is deactivated (editor is closed, etc)
  * @returns {void}
  */
 function deactivate() {
-  console.log("Deactivated")
+  // Do nothing!
+  features.lsp.deactivate()
 }
 
-// Expose these functions to the VS Code editor
-module.exports = {
-  activate,
-  deactivate
-}
+
+module.exports = { activate, deactivate }

@@ -1,0 +1,17 @@
+cabal-version:      2.4
+name:               elm-lsp
+version:            0.1.0.0
+
+author:             Ryan Haskell-Glatz
+maintainer:         ryan.nhg@gmail.com
+
+extra-source-files: CHANGELOG.md
+
+executable server
+    main-is:          Main.hs
+
+    build-depends:  
+        base ^>=4.17.2.1,
+        stm ^>=2.5.1.0
+    hs-source-dirs:   src
+    default-language: Haskell2010

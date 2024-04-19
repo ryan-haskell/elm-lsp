@@ -12,7 +12,7 @@
         "Programming Languages"
     ],
     "activationEvents": [
-        "*"
+        "workspaceContains:**/elm.json"
     ],
     "main": "./client/extension.js",
     "contributes": {
@@ -25,20 +25,7 @@
             }
         ],
         "grammars": [
-            {
-              "scopeName": "markdown.elm.codeblock",
-              "path": "./client/codeblock.tmLanguage.json",
-              "injectTo": [ "text.html.markdown" ],
-              "embeddedLanguages": {
-                "meta.embedded.block.elm": "elm",
-                "meta.embedded.block.glsl": "glsl"
-              }
-            },
-            {
-                "language": "elm",
-                "scopeName": "source.elm",
-                "path": "./client/elm.tmLanguage.json"
-            }
+            
         ],
         "configurationDefaults": {
             "[elm]": {
@@ -46,11 +33,14 @@
                 "editor.formatOnSave": true,
                 "editor.wordBasedSuggestions": "off",
                 "editor.occurrencesHighlight": "off",
-                "editor.selectionHighlight": false
+                "editor.selectionHighlight": false,
+                "editor.semanticHighlighting.enabled": true
             }
         }
     },
-    "scripts": {},
+    "scripts": {
+        "build": "(cd server && cabal build --v=0)"
+    },
     "devDependencies": {
         "@types/node": "20.12.7",
         "@types/vscode": "1.88.0"
