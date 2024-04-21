@@ -1,5 +1,5 @@
 {
-    "name": "elm",
+    "name": "elm-lsp-js",
     "displayName": "Elm",
     "description": "Support for the Elm programming language.",
     "version": "1.0.0",
@@ -11,6 +11,9 @@
     "categories": [
         "Programming Languages"
     ],
+    "bin": {
+        "elm-lsp-js": "server/test-server.js"
+    },
     "activationEvents": [
         "workspaceContains:**/elm.json"
     ],
@@ -24,9 +27,23 @@
                 "configuration": "./language-configuration.json"
             }
         ],
-        "grammars": [
-            
-        ],
+		"configuration": {
+			"type": "object",
+			"title": "Example configuration",
+			"properties": {
+				"elmLsp.trace.server": {
+					"scope": "window",
+					"type": "string",
+					"enum": [
+						"off",
+						"messages",
+						"verbose"
+					],
+					"default": "verbose",
+					"description": "Traces the communication between VS Code and the language server."
+				}
+			}
+		},
         "configurationDefaults": {
             "[elm]": {
                 "editor.tabSize": 4,

@@ -10,28 +10,30 @@ let client = null
  * @returns {Promise<void>}
  */
 async function activate(context) {
-  let command = '/Users/ryan/code/ryan-haskell/elm-lsp/server/dist-newstyle/build/x86_64-osx/ghc-9.4.8/elm-lsp-0.1.0.0/x/server/build/server/server'
+  let command = 'elm-lsp-js'
+  let isElmLspInstalled = true
+  // let command = '/Users/ryan/code/ryan-haskell/elm-lsp/server/dist-newstyle/build/x86_64-osx/ghc-9.4.8/elm-lsp-0.1.0.0/x/server/build/server/server'
 
-  let isElmLspInstalled = await new Promise((resolve) => {
-    try {
-      exec(`${command} --version`, (err) => err ? resolve(false) : resolve(true))
-    } catch (_) {
-      resolve(false)
-    }
-  })
+  // let isElmLspInstalled = await new Promise((resolve) => {
+  //   try {
+  //     exec(`${command} --version`, (err) => err ? resolve(false) : resolve(true))
+  //   } catch (_) {
+  //     resolve(false)
+  //   }
+  // })
 
   if (isElmLspInstalled) {
     try {
       console.log("LSP is installed!")
       client = new LanguageClient(
-        'elmLanguageServer',
+        'elmLsp',
         'Elm Language Server',
         {
           command: command,
           transport: TransportKind.stdio
         },
         {
-          traceOutputChannel: vscode.window.createOutputChannel('Elm LSP', 'elm'),
+          // traceOutputChannel: vscode.window.createOutputChannel('Elm LSP', 'elm'),
           documentSelector: [
             { scheme: 'file', language: 'elm' }
           ],
@@ -56,7 +58,6 @@ async function activate(context) {
   
       console.log("Starting LSP client...")
       client.start()
-      setInterval(_ => console.log(client.state), 500)
     } catch (err) {
       console.error('Elm LSP failed to start', err)
     }

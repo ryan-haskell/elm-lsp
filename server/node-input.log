@@ -1,0 +1,7 @@
+Content-Length: 123
+
+{"data":true}
+{"id":0,"method":"initialize"}
+Content-Length: 53
+
+{"jsonrpc":"2.0","id":0,"result":{"capabilities":{}}}
