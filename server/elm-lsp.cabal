@@ -7,7 +7,7 @@ maintainer:         ryan.nhg@gmail.com
 
 extra-source-files: CHANGELOG.md
 
-executable server
+executable elm-lsp
     main-is:          Main.hs
 
     other-modules:

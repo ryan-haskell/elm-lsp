@@ -1,13 +1,102 @@
 module Main where
 
-import qualified Json.Encode as Json
+import Foreign.Marshal.Alloc (mallocBytes)
+import Foreign.C.String (peekCStringLen)
+import Control.Concurrent (threadDelay)
+import Control.Monad (forever)
 import Data.Aeson ((.=))
+import qualified Json.Encode as Json
 import qualified System.IO as IO
+import Data.Char (isSpace)
+import Text.Read (readMaybe)
 
-import Control.Concurrent
-
+-- Main loop to listen on stdin
 main :: IO ()
-main =
+main = 
+    waitUntilStartingLspServer
+    
+waitUntilStartingLspServer :: IO ()
+waitUntilStartingLspServer = do
+    IO.withFile "/Users/ryan/code/ryan-haskell/elm-lsp/server/logfile.txt" IO.WriteMode $ \logfile -> do
+        IO.hSetBuffering logfile IO.LineBuffering
+        IO.hPutStrLn logfile ("Elm LSP is running...")
+        isReady <- IO.hWaitForInput IO.stdin 1000
+        if isReady then do
+            IO.hPutStrLn logfile ("Ready!")
+            loop logfile (ExpectingContentLength "")
+        else do
+            IO.hPutStrLn logfile ("Not ready!")
+
+
+
+-- THIS WORKS WITH VS CODE, but doesn't actually read stdin
+sendFakeInitResponse :: IO ()
+sendFakeInitResponse = do
+    threadDelay (1 * 1000000)
+    sendInitializationResponse
+    threadDelay (3 * 1000000)
+
+
+-- THIS WORKS fine with `elm-lsp < request.txt`, 
+-- but not with actual VS Code!
+startLspServer :: IO ()
+startLspServer =
+    IO.withFile "/Users/ryan/code/ryan-haskell/elm-lsp/server/logfile.txt" IO.WriteMode $ \logfile -> do
+        IO.hSetBuffering logfile IO.LineBuffering
+        IO.hPutStrLn logfile "Elm LSP is running..."
+        loop logfile (ExpectingContentLength "")
+
+
+
+
+data State
+    = ExpectingContentLength String
+    | CollectingJsonString Int
+
+
+loop :: IO.Handle -> State -> IO ()
+loop logfile state =
+    case state of
+        CollectingJsonString contentLength -> do
+            -- LOG
+            IO.hPutStrLn logfile "Collecting JSON..."
+            -- Open stdin in binary mode
+            IO.hSetBinaryMode IO.stdin True
+            -- Allocate a buffer to store the bytes
+            buffer <- mallocBytes contentLength
+            -- Read the next contentLength bytes from stdin into the buffer
+            bytesRead <- IO.hGetBuf IO.stdin buffer contentLength
+            -- Convert the buffer to a String
+            jsonString <- peekCStringLen (buffer, bytesRead)
+            -- Print, delay, then exit
+            IO.hPutStrLn logfile ("JSON: " <> jsonString)
+            sendInitializationResponse
+            threadDelay (3 * 1000000)
+
+
+        ExpectingContentLength textSoFar -> do
+            if endsWith "\r\n\r\n" textSoFar then
+                case parseContentLength textSoFar of
+                    Just contentLength ->
+                        loop logfile (CollectingJsonString contentLength)
+
+                    Nothing -> do
+                        IO.hPutStrLn logfile ("Failed to parse content length from: " <> textSoFar)
+
+            else do
+                IO.hPutStrLn logfile ("TextSoFar: " <> textSoFar)
+                -- Read lines one at a time from stdin
+                char <- IO.hGetChar IO.stdin
+                loop logfile (ExpectingContentLength (textSoFar <> [char]))
+
+
+parseContentLength :: String -> Maybe Int
+parseContentLength text =
+    readMaybe (trim (drop (length "Content-Length: ") text))
+
+
+sendInitializationResponse :: IO ()
+sendInitializationResponse =
     let
         response :: InitializeResponse
         response =
@@ -17,10 +106,8 @@ main =
                     (Capabilities {})
                     (ServerInfo "elmLsp" "1.0.0")
                 )
-    in do
-        _ <- threadDelay 500000
-        sendLspResponse encodeInitializeResponse response
-        threadDelay 4000000
+    in
+    sendLspResponse encodeInitializeResponse response
 
 
 sendLspResponse :: (response -> Json.Value) -> response -> IO ()
@@ -85,11 +172,20 @@ encodeServerInfo (ServerInfo name version) =
         , ( "version", Json.string version)
         ]
 
--- instance Json.ToJSON ServerInfo where
---     toJSON (ServerInfo name version) = Json.object ["name" .= name, "version" .= version]
 
--- string :: String -> Json.Value
--- string str = Json.String (Json.toJSON str)
+-- STRING UTILS
 
--- int :: Int -> Json.Value
--- int num = Json.Number (fromIntegral num)
+endsWith :: String -> String -> Bool
+endsWith suffix str =
+    let
+        endingOfStr = drop (length str - length suffix) str
+    in
+    suffix == endingOfStr
+
+trim :: String -> String
+trim = f . f
+  where f = reverse . dropWhile isSpace
+
+
+fromStringToInt :: String -> Maybe Int
+fromStringToInt = readMaybe

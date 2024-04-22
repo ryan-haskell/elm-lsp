@@ -18,7 +18,7 @@ async function activate(context) {
     command = '/Users/ryan/code/tjdevries/educationalsp/main'
     isElmLspInstalled = true
   } else {
-    command = '/Users/ryan/code/ryan-haskell/elm-lsp/server/dist-newstyle/build/x86_64-osx/ghc-9.4.8/elm-lsp-0.1.0.0/x/server/build/server/server'
+    command = '/Users/ryan/code/ryan-haskell/elm-lsp/server/dist-newstyle/build/x86_64-osx/ghc-9.4.8/elm-lsp-0.1.0.0/x/elm-lsp/build/elm-lsp/elm-lsp'
   
     isElmLspInstalled = await new Promise((resolve) => {
       try {
@@ -37,7 +37,8 @@ async function activate(context) {
         'Elm Language Server',
         {
           command: command,
-          transport: TransportKind.stdio
+          transport: TransportKind.stdio,
+          options: { encoding: 'utf8' }
         },
         {
           // traceOutputChannel: vscode.window.createOutputChannel('Elm LSP', 'elm'),
