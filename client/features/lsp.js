@@ -10,17 +10,24 @@ let client = null
  * @returns {Promise<void>}
  */
 async function activate(context) {
-  let command = 'elm-lsp-js'
-  let isElmLspInstalled = true
-  // let command = '/Users/ryan/code/ryan-haskell/elm-lsp/server/dist-newstyle/build/x86_64-osx/ghc-9.4.8/elm-lsp-0.1.0.0/x/server/build/server/server'
+  let useGoLsp = false
 
-  // let isElmLspInstalled = await new Promise((resolve) => {
-  //   try {
-  //     exec(`${command} --version`, (err) => err ? resolve(false) : resolve(true))
-  //   } catch (_) {
-  //     resolve(false)
-  //   }
-  // })
+  let command, isElmLspInstalled
+
+  if (useGoLsp) {
+    command = '/Users/ryan/code/tjdevries/educationalsp/main'
+    isElmLspInstalled = true
+  } else {
+    command = '/Users/ryan/code/ryan-haskell/elm-lsp/server/dist-newstyle/build/x86_64-osx/ghc-9.4.8/elm-lsp-0.1.0.0/x/server/build/server/server'
+  
+    isElmLspInstalled = await new Promise((resolve) => {
+      try {
+        exec(`${command} --version`, (err) => err ? resolve(false) : resolve(true))
+      } catch (_) {
+        resolve(false)
+      }
+    })
+  }
 
   if (isElmLspInstalled) {
     try {
