@@ -5,48 +5,40 @@ import Foreign.C.String (peekCStringLen)
 import Control.Concurrent (threadDelay)
 import Control.Monad (forever)
 import Data.Aeson ((.=))
-import qualified Json.Encode as Json
-import qualified System.IO as IO
 import Data.Char (isSpace)
+import Data.Function ((&))
 import Text.Read (readMaybe)
+import qualified Json.Decode
+import qualified Json.Encode
+import qualified System.IO as IO
+import qualified System.Environment
+import qualified Lsp.Id
+import qualified Lsp.Message
+import qualified Lsp.NotificationMessage
+import qualified Lsp.RequestMessage
+import qualified Lsp.Responses.InitializeResponse
+import qualified Lsp.Server
+
+
+main :: IO ()
+main = do
+    args <- System.Environment.getArgs
+    case args of
+        ["--version"] ->
+            IO.putStrLn Lsp.Server.version
+
+        _ ->
+            startLspServer
+    
 
 -- Main loop to listen on stdin
-main :: IO ()
-main = 
-    waitUntilStartingLspServer
-    
-waitUntilStartingLspServer :: IO ()
-waitUntilStartingLspServer = do
-    IO.withFile "/Users/ryan/code/ryan-haskell/elm-lsp/server/logfile.txt" IO.WriteMode $ \logfile -> do
-        IO.hSetBuffering logfile IO.LineBuffering
-        IO.hPutStrLn logfile ("Elm LSP is running...")
-        isReady <- IO.hWaitForInput IO.stdin 1000
-        if isReady then do
-            IO.hPutStrLn logfile ("Ready!")
-            loop logfile (ExpectingContentLength "")
-        else do
-            IO.hPutStrLn logfile ("Not ready!")
-
-
-
--- THIS WORKS WITH VS CODE, but doesn't actually read stdin
-sendFakeInitResponse :: IO ()
-sendFakeInitResponse = do
-    threadDelay (1 * 1000000)
-    sendInitializationResponse
-    threadDelay (3 * 1000000)
-
-
--- THIS WORKS fine with `elm-lsp < request.txt`, 
--- but not with actual VS Code!
 startLspServer :: IO ()
 startLspServer =
     IO.withFile "/Users/ryan/code/ryan-haskell/elm-lsp/server/logfile.txt" IO.WriteMode $ \logfile -> do
-        IO.hSetBuffering logfile IO.LineBuffering
+        IO.hSetBuffering IO.stdin IO.NoBuffering
+        IO.hSetBuffering logfile IO.NoBuffering
         IO.hPutStrLn logfile "Elm LSP is running..."
         loop logfile (ExpectingContentLength "")
-
-
 
 
 data State
@@ -54,12 +46,12 @@ data State
     | CollectingJsonString Int
 
 
+-- TODO: "Use functions like https://hackage.haskell.org/package/bytestring-0.12.1.0/docs/Data-ByteString.html#v:getContents to skip the Foreign modules"
+-- TODO: "Prefer https://hackage.haskell.org/package/base-4.19.1.0/docs/System-IO.html#v:withBinaryFile to avoid any silly encoding/newline behavior"
 loop :: IO.Handle -> State -> IO ()
 loop logfile state =
     case state of
         CollectingJsonString contentLength -> do
-            -- LOG
-            IO.hPutStrLn logfile "Collecting JSON..."
             -- Open stdin in binary mode
             IO.hSetBinaryMode IO.stdin True
             -- Allocate a buffer to store the bytes
@@ -68,25 +60,29 @@ loop logfile state =
             bytesRead <- IO.hGetBuf IO.stdin buffer contentLength
             -- Convert the buffer to a String
             jsonString <- peekCStringLen (buffer, bytesRead)
-            -- Print, delay, then exit
-            IO.hPutStrLn logfile ("JSON: " <> jsonString)
-            sendInitializationResponse
-            threadDelay (3 * 1000000)
+            -- Log the JSON for debugging
+            IO.hPutStrLn logfile ("\nJSON: " <> jsonString)
+            -- Send response to LSP client
+            sendResponseToJson logfile jsonString
+            -- Continue to listen for the next message
+            loop logfile (ExpectingContentLength "")
 
 
         ExpectingContentLength textSoFar -> do
+            -- The Content-Length part is done when we get "\r\n\r\n"
             if endsWith "\r\n\r\n" textSoFar then
                 case parseContentLength textSoFar of
                     Just contentLength ->
+                        -- Start to collect characters for JSON payload
                         loop logfile (CollectingJsonString contentLength)
 
                     Nothing -> do
-                        IO.hPutStrLn logfile ("Failed to parse content length from: " <> textSoFar)
+                        -- Exit if something goes wrong
+                        IO.hPutStrLn logfile ("Failed to parse Content-Length from: " <> textSoFar)
 
             else do
-                IO.hPutStrLn logfile ("TextSoFar: " <> textSoFar)
-                -- Read lines one at a time from stdin
                 char <- IO.hGetChar IO.stdin
+                -- Keep collecting characters for "Content-Length" header
                 loop logfile (ExpectingContentLength (textSoFar <> [char]))
 
 
@@ -95,82 +91,57 @@ parseContentLength text =
     readMaybe (trim (drop (length "Content-Length: ") text))
 
 
-sendInitializationResponse :: IO ()
-sendInitializationResponse =
-    let
-        response :: InitializeResponse
-        response =
-            InitializeResponse
-                0
-                (InitializeResult
-                    (Capabilities {})
-                    (ServerInfo "elmLsp" "1.0.0")
-                )
-    in
-    sendLspResponse encodeInitializeResponse response
+sendResponseToJson :: IO.Handle -> String -> IO ()
+sendResponseToJson logfile jsonString =
+    case Json.Decode.decode jsonString Lsp.Message.decoder of
+        Right (Lsp.Message.Request request) ->
+            handleLspRequestMessage logfile request
+
+        Right (Lsp.Message.Notification request) ->
+            handleLspNotificationMessage logfile request
+
+        Left problem ->
+            IO.hPutStrLn logfile (Json.Decode.fromProblemToString problem)
 
 
-sendLspResponse :: (response -> Json.Value) -> response -> IO ()
-sendLspResponse toJson response = do
-    IO.hPutStr IO.stdout (toRpcString (toJson response))
+handleLspRequestMessage :: IO.Handle -> Lsp.RequestMessage.RequestMessage -> IO ()
+handleLspRequestMessage logfile request = do
+    IO.hPutStrLn logfile ("REQUEST: " <> Lsp.RequestMessage.method request)
+    case Lsp.RequestMessage.method request of
+        "initialize" -> sendInitializationResponse logfile request
+        _ -> return ()
+
+
+handleLspNotificationMessage :: IO.Handle -> Lsp.NotificationMessage.NotificationMessage -> IO ()
+handleLspNotificationMessage logfile request = do
+    IO.hPutStrLn logfile ("NOTIFICATION: " <> Lsp.NotificationMessage.method request)
+    case Lsp.NotificationMessage.method request of
+        _ -> return ()
+
+
+sendInitializationResponse :: IO.Handle -> Lsp.RequestMessage.RequestMessage -> IO ()
+sendInitializationResponse logfile request =
+    Lsp.RequestMessage.id request
+        & Lsp.Responses.InitializeResponse.create
+        & sendLspResponse logfile Lsp.Responses.InitializeResponse.encode
+
+
+sendLspResponse :: IO.Handle -> (response -> Json.Encode.Value) -> response -> IO ()
+sendLspResponse logfile toJson response = do
+    let json = toJson response
+    IO.hPutStr IO.stdout (toRpcString json)
     IO.hFlush IO.stdout
+    IO.hPutStrLn logfile ("RESPONSE: " <> Json.Encode.toString json)
 
 
-toRpcString :: Json.Value -> String
+toRpcString :: Json.Encode.Value -> String
 toRpcString json =
     let
         jsonString :: String
         jsonString =
-            Json.toString json
+            Json.Encode.toString json
     in
     "Content-Length: " <> show (length jsonString) <> "\r\n\r\n" <> jsonString
-
-data InitializeResponse = InitializeResponse
-    { id :: Int
-    , result :: InitializeResult
-    }
-
-encodeInitializeResponse :: InitializeResponse -> Json.Value
-encodeInitializeResponse (InitializeResponse id result) =
-    Json.object
-        [ ( "jsonrpc", Json.string "2.0" )
-        , ( "id", Json.int id )
-        , ( "result", encodeInitializeResult result )
-        ]
-
-
-data InitializeResult = InitializeResult
-    { capabilities :: Capabilities
-    , serverInfo :: ServerInfo
-    }
-
-encodeInitializeResult :: InitializeResult -> Json.Value
-encodeInitializeResult (InitializeResult capabilities serverInfo) =
-    Json.object
-        [ ( "capabilities", encodeCapabilities capabilities )
-        , ( "serverInfo", encodeServerInfo serverInfo )
-        ]
-
-
-data Capabilities = Capabilities
-    {}
-
-encodeCapabilities :: Capabilities -> Json.Value
-encodeCapabilities Capabilities =
-    Json.object []
-
-
-data ServerInfo = ServerInfo
-    { name :: String
-    , version :: String
-    }
-
-encodeServerInfo :: ServerInfo -> Json.Value
-encodeServerInfo (ServerInfo name version) =
-    Json.object
-        [ ( "name", Json.string name)
-        , ( "version", Json.string version)
-        ]
 
 
 -- STRING UTILS

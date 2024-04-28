@@ -1,44 +1,47 @@
 module Json.Encode (
     Value
     , object
-    , string, int
+    , string, int, null
     , toString
 ) where
 
+import Prelude hiding (null)
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.Aeson.Types as Value
 import qualified Data.Aeson.Encoding as Encode
 import qualified Data.ByteString.Lazy.Char8 as LBS
+import qualified Data.Text
+import qualified Data.Scientific
+import Json.Value
 
-data Value = Value Encode.Encoding
 
 object :: [(String, Value)] -> Value
 object pairs =
-    Value $
-        Encode.dict
-            Encode.string
-            unwrapValue
-            (\f initVal pairs -> foldr (\(k, v) acc -> f k v acc) initVal pairs)
-            pairs
+    Value $ 
+        Value.Object (KeyMap.fromList (map (\(k, (Value v)) -> (Key.fromString k, v)) pairs))
 
 
 string :: String -> Value
 string text =
-    Value (Encode.string text)
+    Value (Value.String (Data.Text.pack text))
 
 
 int :: Int -> Value
 int num =
-    Value (Encode.int num)
+    Value (Value.Number (Data.Scientific.scientific (toInteger num) 0))
+
+
+null :: Value
+null =
+    Value Value.Null
+
 
 
 -- CONVERTING TO TEXT
 
+
 toString :: Value -> String
-toString (Value encoding) =
-    LBS.unpack (Encode.encodingToLazyByteString encoding)
+toString (Value value) =
+    LBS.unpack (Encode.encodingToLazyByteString (Encode.value value))
 
-
--- UTILS
-
-unwrapValue :: Value -> Encode.Encoding
-unwrapValue (Value encoding) =
-    encoding
