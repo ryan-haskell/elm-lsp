@@ -139,7 +139,7 @@ flattenEitherListHelp index listSoFar listOfEithers =
             Right []
 
         (Left problem : _) ->
-            Left ( 0, problem )
+            Left ( index, problem )
 
         (Right value : remainingEithers) ->
             flattenEitherListHelp (index + 1) (value : listSoFar) remainingEithers 
