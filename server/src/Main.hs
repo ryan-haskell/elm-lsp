@@ -1,13 +1,10 @@
 module Main where
 
-import Foreign.Marshal.Alloc (mallocBytes)
-import Foreign.C.String (peekCStringLen)
-import Control.Concurrent (threadDelay)
-import Control.Monad (forever)
-import Data.Aeson ((.=))
 import Data.Char (isSpace)
 import Data.Function ((&))
 import Text.Read (readMaybe)
+import qualified Data.ByteString
+import qualified Data.ByteString.Char8 as B8
 import qualified Json.Decode
 import qualified Json.Encode
 import qualified System.IO as IO
@@ -34,7 +31,7 @@ main = do
 -- Main loop to listen on stdin
 startLspServer :: IO ()
 startLspServer =
-    IO.withFile "/Users/ryan/code/ryan-haskell/elm-lsp/server/logfile.txt" IO.WriteMode $ \logfile -> do
+    IO.withBinaryFile "/Users/ryan/code/ryan-haskell/elm-lsp/server/logfile.txt" IO.WriteMode $ \logfile -> do
         IO.hSetBuffering IO.stdin IO.NoBuffering
         IO.hSetBuffering logfile IO.NoBuffering
         IO.hPutStrLn logfile "Elm LSP is running..."
@@ -46,20 +43,14 @@ data State
     | CollectingJsonString Int
 
 
--- TODO: "Use functions like https://hackage.haskell.org/package/bytestring-0.12.1.0/docs/Data-ByteString.html#v:getContents to skip the Foreign modules"
--- TODO: "Prefer https://hackage.haskell.org/package/base-4.19.1.0/docs/System-IO.html#v:withBinaryFile to avoid any silly encoding/newline behavior"
 loop :: IO.Handle -> State -> IO ()
 loop logfile state =
     case state of
         CollectingJsonString contentLength -> do
             -- Open stdin in binary mode
-            IO.hSetBinaryMode IO.stdin True
-            -- Allocate a buffer to store the bytes
-            buffer <- mallocBytes contentLength
-            -- Read the next contentLength bytes from stdin into the buffer
-            bytesRead <- IO.hGetBuf IO.stdin buffer contentLength
+            byteString <- Data.ByteString.hGet IO.stdin contentLength
             -- Convert the buffer to a String
-            jsonString <- peekCStringLen (buffer, bytesRead)
+            let jsonString = B8.unpack byteString
             -- Log the JSON for debugging
             IO.hPutStrLn logfile ("\nJSON: " <> jsonString)
             -- Send response to LSP client
