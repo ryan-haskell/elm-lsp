@@ -1,8 +1,9 @@
 module Json.Decode (
-    Decoder, decode
+    Decoder
+    , decodeString, decodeValue
     , Problem(..), fromProblemToString
     , succeed, fail
-    , string, int
+    , string, int, list
     , object, with, field, withField
     , Value, value
     , map, map2, andThen, oneOf
@@ -11,6 +12,7 @@ module Json.Decode (
 import Prelude hiding (map, fail)
 import qualified Prelude
 import qualified Json.Value
+import qualified Json.Encode
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -46,11 +48,18 @@ fromProblemToString problem =
     fromStringPathToString 0 (fromProblemToStringWithPath 0 ( problem, [] ))
 
 
-decode :: String -> Decoder value -> Either Problem value
-decode jsonString (Decoder toResult) =
+decodeString :: String -> Decoder value -> Either Problem value
+decodeString jsonString (Decoder toResult) =
     case fromStringToValue jsonString of
         Nothing -> Left InvalidJson
         Just value -> toResult value
+
+
+decodeValue :: Value -> Decoder value -> Either Problem value
+decodeValue value decoder =
+    decodeString
+        (Json.Encode.toString value)
+        decoder
 
 
 
@@ -136,7 +145,7 @@ flattenEitherListHelp :: Int -> [value] -> [Either Problem value] -> Either (Int
 flattenEitherListHelp index listSoFar listOfEithers =
     case listOfEithers of
         [] ->
-            Right []
+            Right listSoFar
 
         (Left problem : _) ->
             Left ( index, problem )

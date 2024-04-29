@@ -5,15 +5,21 @@ import Data.Function ((&))
 import Text.Read (readMaybe)
 import qualified Data.ByteString
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.Map as Map
 import qualified Json.Decode
 import qualified Json.Encode
 import qualified System.IO as IO
 import qualified System.Environment
+import qualified Lsp.Capabilities.SemanticTokens
+import qualified Lsp.Capabilities.TextDocument.DidChangeParams
+import qualified Lsp.Capabilities.TextDocument.DidCloseParams
+import qualified Lsp.Capabilities.TextDocument.DidOpenParams
 import qualified Lsp.Id
 import qualified Lsp.Message
 import qualified Lsp.NotificationMessage
 import qualified Lsp.RequestMessage
-import qualified Lsp.Responses.InitializeResponse
+import qualified Lsp.ResponseMessage
+import qualified Lsp.Responses.InitializeResult
 import qualified Lsp.Server
 
 
@@ -35,17 +41,30 @@ startLspServer =
         IO.hSetBuffering IO.stdin IO.NoBuffering
         IO.hSetBuffering logfile IO.NoBuffering
         IO.hPutStrLn logfile "Elm LSP is running..."
-        loop logfile (ExpectingContentLength "")
+        loop logfile (State Map.empty (ExpectingContentLength ""))
 
 
-data State
+data State = State
+    { openTextDocuments :: Map.Map String String
+    , stdio :: StdioState
+    }
+
+
+updateStdioState :: StdioState -> State -> State
+updateStdioState newStdio state =
+    State
+        (openTextDocuments state)
+        newStdio
+
+
+data StdioState
     = ExpectingContentLength String
     | CollectingJsonString Int
 
 
 loop :: IO.Handle -> State -> IO ()
 loop logfile state =
-    case state of
+    case stdio state of
         CollectingJsonString contentLength -> do
             -- Open stdin in binary mode
             byteString <- Data.ByteString.hGet IO.stdin contentLength
@@ -54,9 +73,9 @@ loop logfile state =
             -- Log the JSON for debugging
             IO.hPutStrLn logfile ("\nJSON: " <> jsonString)
             -- Send response to LSP client
-            sendResponseToJson logfile jsonString
+            newState <- sendResponseToJson logfile jsonString state
             -- Continue to listen for the next message
-            loop logfile (ExpectingContentLength "")
+            loop logfile (updateStdioState (ExpectingContentLength "") newState)
 
 
         ExpectingContentLength textSoFar -> do
@@ -65,7 +84,7 @@ loop logfile state =
                 case parseContentLength textSoFar of
                     Just contentLength ->
                         -- Start to collect characters for JSON payload
-                        loop logfile (CollectingJsonString contentLength)
+                        loop logfile (updateStdioState (CollectingJsonString contentLength) state)
 
                     Nothing -> do
                         -- Exit if something goes wrong
@@ -74,7 +93,7 @@ loop logfile state =
             else do
                 char <- IO.hGetChar IO.stdin
                 -- Keep collecting characters for "Content-Length" header
-                loop logfile (ExpectingContentLength (textSoFar <> [char]))
+                loop logfile (updateStdioState (ExpectingContentLength (textSoFar <> [char])) state)
 
 
 parseContentLength :: String -> Maybe Int
@@ -82,44 +101,120 @@ parseContentLength text =
     readMaybe (trim (drop (length "Content-Length: ") text))
 
 
-sendResponseToJson :: IO.Handle -> String -> IO ()
-sendResponseToJson logfile jsonString =
-    case Json.Decode.decode jsonString Lsp.Message.decoder of
+sendResponseToJson :: IO.Handle -> String -> State -> IO State
+sendResponseToJson logfile jsonString state =
+    case Json.Decode.decodeString jsonString Lsp.Message.decoder of
         Right (Lsp.Message.Request request) ->
-            handleLspRequestMessage logfile request
+            handleLspRequestMessage logfile request state
 
         Right (Lsp.Message.Notification request) ->
-            handleLspNotificationMessage logfile request
+            handleLspNotificationMessage logfile request state
 
-        Left problem ->
+        Left problem -> do
             IO.hPutStrLn logfile (Json.Decode.fromProblemToString problem)
+            return state
 
 
-handleLspRequestMessage :: IO.Handle -> Lsp.RequestMessage.RequestMessage -> IO ()
-handleLspRequestMessage logfile request = do
+handleLspRequestMessage :: IO.Handle -> Lsp.RequestMessage.RequestMessage -> State -> IO State
+handleLspRequestMessage logfile request state = do
     IO.hPutStrLn logfile ("REQUEST: " <> Lsp.RequestMessage.method request)
     case Lsp.RequestMessage.method request of
-        "initialize" -> sendInitializationResponse logfile request
-        _ -> return ()
+        "initialize" -> do
+            _ <- Lsp.Responses.InitializeResult.create
+                & Lsp.Responses.InitializeResult.encode
+                & sendLspResponse logfile request
+            return state
+
+        "textDocument/semanticTokens/full" ->
+            let
+                paramsJson = Lsp.RequestMessage.params request
+            in
+            case Json.Decode.decodeValue paramsJson Lsp.Capabilities.SemanticTokens.decoder of
+                Left problem -> do
+                    IO.hPutStrLn logfile (Json.Decode.fromProblemToString problem)
+                    return state
+
+                Right params -> do
+                    result <- Lsp.Capabilities.SemanticTokens.handle logfile (openTextDocuments state) params
+                    sendLspResponse logfile request (Lsp.Capabilities.SemanticTokens.encode result)
+                    return state
+
+        _ ->
+            return state
 
 
-handleLspNotificationMessage :: IO.Handle -> Lsp.NotificationMessage.NotificationMessage -> IO ()
-handleLspNotificationMessage logfile request = do
-    IO.hPutStrLn logfile ("NOTIFICATION: " <> Lsp.NotificationMessage.method request)
-    case Lsp.NotificationMessage.method request of
-        _ -> return ()
+handleLspNotificationMessage :: IO.Handle -> Lsp.NotificationMessage.NotificationMessage -> State -> IO State
+handleLspNotificationMessage logfile notification state = do
+    IO.hPutStrLn logfile ("NOTIFICATION: " <> Lsp.NotificationMessage.method notification)
+    case Lsp.NotificationMessage.method notification of
+        "textDocument/didOpen" ->
+            let
+                result :: Either Json.Decode.Problem Lsp.Capabilities.TextDocument.DidOpenParams.DidOpenParams
+                result =
+                    Json.Decode.decodeValue
+                        (Lsp.NotificationMessage.params notification)
+                        Lsp.Capabilities.TextDocument.DidOpenParams.decoder
+            in
+            case result of
+                Left problem -> do
+                    IO.hPutStrLn logfile (Json.Decode.fromProblemToString problem)
+                    return state
+
+                Right params -> do
+                    let fsPath = Lsp.Capabilities.TextDocument.DidOpenParams.toFsPath params
+                    IO.hPutStrLn logfile ("FS PATH: " <> fsPath)
+                    let text = Lsp.Capabilities.TextDocument.DidOpenParams.text params
+                    let newState = insertTextDocument fsPath text state
+                    return newState
+
+        "textDocument/didClose" ->
+            let
+                result :: Either Json.Decode.Problem Lsp.Capabilities.TextDocument.DidCloseParams.DidCloseParams
+                result =
+                    Json.Decode.decodeValue
+                        (Lsp.NotificationMessage.params notification)
+                        Lsp.Capabilities.TextDocument.DidCloseParams.decoder
+            in
+            case result of
+                Left problem -> do
+                    IO.hPutStrLn logfile (Json.Decode.fromProblemToString problem)
+                    return state
+
+                Right params -> do
+                    let fsPath = Lsp.Capabilities.TextDocument.DidCloseParams.toFsPath params
+                    IO.hPutStrLn logfile ("FS PATH: " <> fsPath)
+                    let newState = removeTextDocument fsPath state
+                    return newState
+
+        "textDocument/didChange" ->
+            let
+                result :: Either Json.Decode.Problem Lsp.Capabilities.TextDocument.DidChangeParams.DidChangeParams
+                result =
+                    Json.Decode.decodeValue
+                        (Lsp.NotificationMessage.params notification)
+                        Lsp.Capabilities.TextDocument.DidChangeParams.decoder
+            in
+            case result of
+                Left problem -> do
+                    IO.hPutStrLn logfile (Json.Decode.fromProblemToString problem)
+                    return state
+
+                Right params -> do
+                    let fsPath = Lsp.Capabilities.TextDocument.DidChangeParams.toFsPath params
+                    IO.hPutStrLn logfile ("FS PATH: " <> fsPath)
+                    let text = Lsp.Capabilities.TextDocument.DidChangeParams.text params
+                    let newState = insertTextDocument fsPath text state
+                    return newState
+
+        _ ->
+            return state
 
 
-sendInitializationResponse :: IO.Handle -> Lsp.RequestMessage.RequestMessage -> IO ()
-sendInitializationResponse logfile request =
-    Lsp.RequestMessage.id request
-        & Lsp.Responses.InitializeResponse.create
-        & sendLspResponse logfile Lsp.Responses.InitializeResponse.encode
-
-
-sendLspResponse :: IO.Handle -> (response -> Json.Encode.Value) -> response -> IO ()
-sendLspResponse logfile toJson response = do
-    let json = toJson response
+sendLspResponse :: IO.Handle -> Lsp.RequestMessage.RequestMessage -> Json.Encode.Value -> IO ()
+sendLspResponse logfile request resultJson = do
+    let id = Lsp.RequestMessage.id request
+    let responseMessage = Lsp.ResponseMessage.create id resultJson
+    let json = Lsp.ResponseMessage.encode responseMessage
     IO.hPutStr IO.stdout (toRpcString json)
     IO.hFlush IO.stdout
     IO.hPutStrLn logfile ("RESPONSE: " <> Json.Encode.toString json)
@@ -135,7 +230,18 @@ toRpcString json =
     "Content-Length: " <> show (length jsonString) <> "\r\n\r\n" <> jsonString
 
 
+-- STATE
+
+insertTextDocument :: String -> String -> State -> State
+insertTextDocument fsPath text (State map s) =
+    State (Map.insert fsPath text map) s
+
+removeTextDocument :: String -> State -> State
+removeTextDocument fsPath (State map s) =
+    State (Map.delete fsPath map) s
+
 -- STRING UTILS
+
 
 endsWith :: String -> String -> Bool
 endsWith suffix str =
@@ -144,10 +250,15 @@ endsWith suffix str =
     in
     suffix == endingOfStr
 
+
 trim :: String -> String
-trim = f . f
-  where f = reverse . dropWhile isSpace
+trim =
+    let
+        f = reverse . dropWhile isSpace
+    in
+    f . f
 
 
 fromStringToInt :: String -> Maybe Int
-fromStringToInt = readMaybe
+fromStringToInt =
+    readMaybe

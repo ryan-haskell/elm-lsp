@@ -1,4 +1,3 @@
-const vscode = require('vscode')
 const { exec } = require("child_process")
 const { LanguageClient, TransportKind, CloseAction, ErrorAction } = require("vscode-languageclient/node")
 

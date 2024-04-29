@@ -15,12 +15,23 @@ executable elm-lsp
         Json.Encode
         Json.Value
 
+        Lsp.Capabilities.SemanticTokens
+        Lsp.Capabilities.TextDocument.DidChangeParams
+        Lsp.Capabilities.TextDocument.DidCloseParams
+        Lsp.Capabilities.TextDocument.DidOpenParams
+        Lsp.DocumentUri
         Lsp.Id
         Lsp.Message
         Lsp.NotificationMessage
         Lsp.RequestMessage
-        Lsp.Responses.InitializeResponse
+        Lsp.ResponseMessage
+        Lsp.Responses.InitializeResult
+        Lsp.SemanticTokensOptions
         Lsp.Server
+        Lsp.TextDocumentIdentifier
+
+        Parser.AST
+        Parser.Core
 
     build-depends:  
         base ^>=4.17.2.1,
@@ -29,6 +40,7 @@ executable elm-lsp
         text ^>=2.0.2,
         scientific ^>=0.3.7.0,
         vector ^>=0.13.1.0,
+        containers ^>=0.6.7,
         bytestring
     hs-source-dirs:   src
     default-language: Haskell2010

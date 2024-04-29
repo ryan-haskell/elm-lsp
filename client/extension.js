@@ -1,6 +1,5 @@
 const features = {
-  lsp: require('./features/lsp.js'),
-  semanticHighlighting: require('./features/semantic-highlighting.js')
+  lsp: require('./features/lsp.js')
 }
 
 
@@ -12,9 +11,7 @@ const features = {
  * @returns {void}
  */
 async function activate(context) {
-  console.log("Activate!")
   features.lsp.activate(context)
-  features.semanticHighlighting.activate(context)
 }
 
 
@@ -22,7 +19,6 @@ async function activate(context) {
  * @returns {void}
  */
 function deactivate() {
-  // Do nothing!
   features.lsp.deactivate()
 }
 

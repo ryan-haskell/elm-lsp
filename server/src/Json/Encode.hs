@@ -1,7 +1,8 @@
 module Json.Encode (
     Value
     , object
-    , string, int, null
+    , string, int, bool, null
+    , list
     , toString
 ) where
 
@@ -13,6 +14,7 @@ import qualified Data.Aeson.Encoding as Encode
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import qualified Data.Text
 import qualified Data.Scientific
+import qualified Data.Vector
 import Json.Value
 
 
@@ -32,10 +34,19 @@ int num =
     Value (Value.Number (Data.Scientific.scientific (toInteger num) 0))
 
 
+bool :: Bool -> Value
+bool val =
+    Value (Value.Bool val)
+
+
 null :: Value
 null =
     Value Value.Null
 
+
+list :: (item -> Value) -> [item] -> Value
+list encodeItem items =
+    Value (Value.Array (Data.Vector.fromList (map (Json.Value.unwrap . encodeItem) items)))
 
 
 -- CONVERTING TO TEXT
